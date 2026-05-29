@@ -190,3 +190,7 @@ For SQL Server, you also need Microsoft's ODBC driver installed on the host mach
 - `GET /api/{table}` supports simple equality filters, single-column sorting, and pagination. See “List query parameters” above for details.
 - The service reflects one configured schema at a time through `SCHEMA_NAME`, which fits PostgreSQL, SQL Server, and Oracle-style schema layouts well.
 - `GET /health` and `GET /metadata` expose the active SQLAlchemy dialect and driver so you can confirm the connected backend.
+
+## Open source
+
+This project is licensed under the MIT License and built to be shared, extended, and improved in the open. Contributions, bug reports, feature ideas, discussions, and real-world feedback are welcome.
