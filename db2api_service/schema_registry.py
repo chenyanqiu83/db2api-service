@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import hashlib
 import json
 import threading
@@ -196,19 +196,26 @@ class DatabaseDescriptor:
 class SchemaRegistry:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.engine: Engine = create_engine(settings.database_url, future=True)
         self._lock = threading.RLock()
-        self._refresh_interval = timedelta(
-            seconds=settings.schema_refresh_interval_seconds
-        )
+        self._engine: Engine | None = None
         self._snapshot = RegistrySnapshot(
             refreshed_at=datetime.fromtimestamp(0, timezone.utc),
             digest="",
             tables={},
         )
 
+    @property
+    def engine(self) -> Engine:
+        with self._lock:
+            if self._engine is None:
+                self._engine = create_engine(self.settings.database_url, future=True)
+            return self._engine
+
     def dispose(self) -> None:
-        self.engine.dispose()
+        with self._lock:
+            if self._engine is not None:
+                self._engine.dispose()
+                self._engine = None
 
     def describe_database(self) -> DatabaseDescriptor:
         return DatabaseDescriptor(
@@ -225,10 +232,7 @@ class SchemaRegistry:
     def refresh_if_stale(self) -> RegistrySnapshot:
         with self._lock:
             snapshot = self._snapshot
-            stale = (
-                not snapshot.tables
-                or _utcnow() - snapshot.refreshed_at >= self._refresh_interval
-            )
+            stale = not snapshot.tables
 
         if stale:
             return self.refresh(force=True)

@@ -3,13 +3,13 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import and_, delete, func, insert, select, update
 from sqlalchemy.engine import Connection
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import DBAPIError, NoSuchTableError, SQLAlchemyError
 import uvicorn
 
 from db2api_service.config import Settings, get_settings
@@ -21,6 +21,41 @@ from db2api_service.schema_registry import (
 
 
 RESERVED_QUERY_PARAMS = {"limit", "offset", "order_by", "desc", "refresh"}
+SCHEMA_RETRY_HTTP_DETAILS = (
+    "was not found in the reflected schema.",
+    "Unknown columns for table '",
+    "Columns are not writable for table '",
+    "Missing required columns for table '",
+    "Unknown filter column for table '",
+    "Unknown order_by column for table '",
+    "Identity for table '",
+)
+SCHEMA_RETRY_DB_FRAGMENTS = (
+    "no such table",
+    "no such column",
+    "has no column named",
+    "unknown column",
+    "undefined column",
+    "invalid column name",
+    "invalid object name",
+    "column does not exist",
+    "relation does not exist",
+    "ora-00904",
+    "ora-00942",
+)
+SCHEMA_RETRY_DB_CODES = {
+    "42703",
+    "42P01",
+    "42S02",
+    "42S22",
+    "S0002",
+    "S0022",
+    "1054",
+    "1146",
+    "207",
+    "208",
+}
+ResponseType = TypeVar("ResponseType")
 
 
 def _coerce_scalar(value: Any, descriptor: ColumnDescriptor) -> Any:
@@ -172,6 +207,63 @@ def _handle_db_error(exc: SQLAlchemyError) -> HTTPException:
     return HTTPException(status_code=400, detail=f"Database operation failed: {exc}")
 
 
+def _should_retry_after_http_error(exc: HTTPException) -> bool:
+    detail = exc.detail if isinstance(exc.detail, str) else ""
+    return any(fragment in detail for fragment in SCHEMA_RETRY_HTTP_DETAILS)
+
+
+def _should_retry_after_db_error(exc: SQLAlchemyError) -> bool:
+    if isinstance(exc, NoSuchTableError):
+        return True
+
+    messages = {str(exc).lower()}
+    orig = getattr(exc, "orig", None)
+    if orig is not None:
+        messages.add(str(orig).lower())
+        messages.update(str(arg).lower() for arg in getattr(orig, "args", ()) if arg)
+
+    if any(fragment in message for message in messages for fragment in SCHEMA_RETRY_DB_FRAGMENTS):
+        return True
+
+    if not isinstance(exc, DBAPIError) or orig is None:
+        return False
+
+    candidate_codes = {
+        str(code).upper()
+        for code in (
+            getattr(orig, "pgcode", None),
+            getattr(orig, "sqlstate", None),
+            getattr(orig, "sqlstate_value", None),
+        )
+        if code
+    }
+    args = getattr(orig, "args", ())
+    if args and args[0] is not None:
+        candidate_codes.add(str(args[0]).upper())
+
+    return any(code in SCHEMA_RETRY_DB_CODES for code in candidate_codes)
+
+
+def _execute_with_schema_retry(
+    operation: Callable[[bool], ResponseType],
+    *,
+    refresh: bool,
+) -> ResponseType:
+    try:
+        return operation(refresh)
+    except HTTPException as exc:
+        if refresh or not _should_retry_after_http_error(exc):
+            raise
+    except SQLAlchemyError as exc:
+        if refresh or not _should_retry_after_db_error(exc):
+            raise _handle_db_error(exc) from exc
+
+    try:
+        return operation(True)
+    except SQLAlchemyError as exc:
+        raise _handle_db_error(exc) from exc
+
+
 def _snapshot_response(request: Request, *, refresh: bool) -> dict[str, Any]:
     registry = _get_registry(request)
     snapshot = registry.refresh(force=True) if refresh else registry.refresh_if_stale()
@@ -234,46 +326,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         desc: bool = Query(default=False, description="Sort descending when true."),
         refresh: bool = Query(default=False, description="Force a metadata refresh before serving the request."),
     ) -> dict[str, Any]:
-        table = _resolve_table(request, table_name, refresh=refresh)
-        filters = _parse_filters(table, request)
-        settings = _get_settings(request)
-        page_size = min(limit, settings.max_page_size)
+        def operation(force_refresh: bool) -> dict[str, Any]:
+            table = _resolve_table(request, table_name, refresh=force_refresh)
+            filters = _parse_filters(table, request)
+            settings = _get_settings(request)
+            page_size = min(limit, settings.max_page_size)
 
-        count_stmt = select(func.count()).select_from(table.table)
-        stmt = select(table.table)
-        clauses = _build_where_clause(table, filters)
-        if clauses:
-            count_stmt = count_stmt.where(and_(*clauses))
-            stmt = stmt.where(and_(*clauses))
+            count_stmt = select(func.count()).select_from(table.table)
+            stmt = select(table.table)
+            clauses = _build_where_clause(table, filters)
+            if clauses:
+                count_stmt = count_stmt.where(and_(*clauses))
+                stmt = stmt.where(and_(*clauses))
 
-        if order_by is not None:
-            if order_by not in table.columns:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Unknown order_by column for table '{table.name}': {order_by}.",
-                )
-            order_column = table.table.c[order_by]
-            stmt = stmt.order_by(order_column.desc() if desc else order_column.asc())
-        elif table.primary_keys:
-            stmt = stmt.order_by(*[table.table.c[column_name].asc() for column_name in table.primary_keys])
+            if order_by is not None:
+                if order_by not in table.columns:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Unknown order_by column for table '{table.name}': {order_by}.",
+                    )
+                order_column = table.table.c[order_by]
+                stmt = stmt.order_by(order_column.desc() if desc else order_column.asc())
+            elif table.primary_keys:
+                stmt = stmt.order_by(*[table.table.c[column_name].asc() for column_name in table.primary_keys])
 
-        stmt = stmt.limit(page_size).offset(offset)
+            stmt = stmt.limit(page_size).offset(offset)
 
-        try:
             with _get_registry(request).engine.connect() as connection:
                 total = connection.execute(count_stmt).scalar_one()
                 rows = connection.execute(stmt).mappings().all()
-        except SQLAlchemyError as exc:
-            raise _handle_db_error(exc) from exc
 
-        return {
-            "table": table.name,
-            "total": total,
-            "limit": page_size,
-            "offset": offset,
-            "filters": filters,
-            "items": [jsonable_encoder(dict(row)) for row in rows],
-        }
+            return {
+                "table": table.name,
+                "total": total,
+                "limit": page_size,
+                "offset": offset,
+                "filters": filters,
+                "items": [jsonable_encoder(dict(row)) for row in rows],
+            }
+
+        return _execute_with_schema_retry(operation, refresh=refresh)
 
     @app.get("/api/{table_name}/{identity}")
     def get_row(
@@ -282,23 +374,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         refresh: bool = Query(default=False, description="Force a metadata refresh before serving the request."),
     ) -> dict[str, Any]:
-        table = _resolve_table(request, table_name, refresh=refresh)
-        filters = _parse_identity(table, identity)
+        def operation(force_refresh: bool) -> dict[str, Any]:
+            table = _resolve_table(request, table_name, refresh=force_refresh)
+            filters = _parse_identity(table, identity)
 
-        try:
             with _get_registry(request).engine.connect() as connection:
                 row = _fetch_one(connection, table, filters)
-        except SQLAlchemyError as exc:
-            raise _handle_db_error(exc) from exc
 
-        if row is None:
-            raise HTTPException(status_code=404, detail=f"Row was not found in table '{table.name}'.")
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"Row was not found in table '{table.name}'.")
 
-        return {
-            "table": table.name,
-            "primary_key": filters,
-            "item": row,
-        }
+            return {
+                "table": table.name,
+                "primary_key": filters,
+                "item": row,
+            }
+
+        return _execute_with_schema_retry(operation, refresh=refresh)
 
     @app.post("/api/{table_name}", status_code=status.HTTP_201_CREATED)
     def create_row(
@@ -307,10 +399,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload: dict[str, Any] = Body(..., description="Column values for the new row."),
         refresh: bool = Query(default=False, description="Force a metadata refresh before serving the request."),
     ) -> dict[str, Any]:
-        table = _resolve_table(request, table_name, refresh=refresh)
-        clean_payload = _sanitize_payload(table, payload, for_update=False)
+        def operation(force_refresh: bool) -> dict[str, Any]:
+            table = _resolve_table(request, table_name, refresh=force_refresh)
+            clean_payload = _sanitize_payload(table, payload, for_update=False)
 
-        try:
             with _get_registry(request).engine.begin() as connection:
                 result = connection.execute(insert(table.table).values(**clean_payload))
                 primary_key = {
@@ -327,14 +419,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 row = None
                 if len(primary_key) == len(table.primary_keys) and primary_key:
                     row = _fetch_one(connection, table, primary_key)
-        except SQLAlchemyError as exc:
-            raise _handle_db_error(exc) from exc
 
-        return {
-            "table": table.name,
-            "primary_key": primary_key or None,
-            "item": row or clean_payload,
-        }
+            return {
+                "table": table.name,
+                "primary_key": primary_key or None,
+                "item": row or clean_payload,
+            }
+
+        return _execute_with_schema_retry(operation, refresh=refresh)
 
     @app.patch("/api/{table_name}/{identity}")
     def update_row(
@@ -344,11 +436,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload: dict[str, Any] = Body(..., description="Partial row update payload."),
         refresh: bool = Query(default=False, description="Force a metadata refresh before serving the request."),
     ) -> dict[str, Any]:
-        table = _resolve_table(request, table_name, refresh=refresh)
-        filters = _parse_identity(table, identity)
-        clean_payload = _sanitize_payload(table, payload, for_update=True)
+        def operation(force_refresh: bool) -> dict[str, Any]:
+            table = _resolve_table(request, table_name, refresh=force_refresh)
+            filters = _parse_identity(table, identity)
+            clean_payload = _sanitize_payload(table, payload, for_update=True)
 
-        try:
             with _get_registry(request).engine.begin() as connection:
                 current = _fetch_one(connection, table, filters)
                 if current is None:
@@ -360,16 +452,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     .values(**clean_payload)
                 )
                 updated_row = _fetch_one(connection, table, filters)
-        except HTTPException:
-            raise
-        except SQLAlchemyError as exc:
-            raise _handle_db_error(exc) from exc
 
-        return {
-            "table": table.name,
-            "primary_key": filters,
-            "item": updated_row,
-        }
+            return {
+                "table": table.name,
+                "primary_key": filters,
+                "item": updated_row,
+            }
+
+        return _execute_with_schema_retry(operation, refresh=refresh)
 
     @app.delete("/api/{table_name}/{identity}")
     def delete_row(
@@ -378,10 +468,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         refresh: bool = Query(default=False, description="Force a metadata refresh before serving the request."),
     ) -> dict[str, Any]:
-        table = _resolve_table(request, table_name, refresh=refresh)
-        filters = _parse_identity(table, identity)
+        def operation(force_refresh: bool) -> dict[str, Any]:
+            table = _resolve_table(request, table_name, refresh=force_refresh)
+            filters = _parse_identity(table, identity)
 
-        try:
             with _get_registry(request).engine.begin() as connection:
                 current = _fetch_one(connection, table, filters)
                 if current is None:
@@ -390,17 +480,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 connection.execute(
                     delete(table.table).where(and_(*_build_where_clause(table, filters)))
                 )
-        except HTTPException:
-            raise
-        except SQLAlchemyError as exc:
-            raise _handle_db_error(exc) from exc
 
-        return {
-            "table": table.name,
-            "primary_key": filters,
-            "deleted": True,
-            "item": current,
-        }
+            return {
+                "table": table.name,
+                "primary_key": filters,
+                "deleted": True,
+                "item": current,
+            }
+
+        return _execute_with_schema_retry(operation, refresh=refresh)
 
     return app
 

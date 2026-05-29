@@ -17,7 +17,7 @@ def _parse_csv(value: object) -> list[str]:
 
 
 class Settings(BaseSettings):
-    app_name: str = "Self Evolving DB Access Service"
+    app_name: str = "db2api-service"
     database_url: str = Field(
         default="sqlite:///./demo.db",
         validation_alias=AliasChoices("DATABASE_URL", "DB_URL"),
@@ -34,11 +34,6 @@ class Settings(BaseSettings):
         default_factory=list,
         validation_alias=AliasChoices("EXCLUDE_TABLES"),
     )
-    schema_refresh_interval_seconds: int = Field(
-        default=30,
-        ge=1,
-        validation_alias=AliasChoices("SCHEMA_REFRESH_INTERVAL_SECONDS"),
-    )
     default_page_size: int = Field(
         default=50,
         ge=1,
@@ -53,6 +48,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
+        env_ignore_empty=True,
         extra="ignore",
         populate_by_name=True,
     )

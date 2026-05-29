@@ -20,8 +20,9 @@
 
 - 扫描已配置数据库，并为每张表暴露对应的 CRUD 接口。
 - 根据最新反射得到的表结构校验请求体字段名。
-- 按可配置时间间隔自动刷新表元数据。
-- 提供显式的 schema 刷新接口，便于在 DDL 变更后立即重新加载结构。
+- 服务启动时加载一次表元数据，不依赖定时刷新。
+- 当数据库 schema 变更导致请求与缓存结构不一致时，服务会自动刷新元数据并重试一次。
+- 仍然提供显式的 schema 刷新接口，便于需要时手动触发重新加载。
 
 ## 工作方式
 
@@ -108,7 +109,7 @@ pip install -e .[sqlserver]
 ## 说明
 
 - 没有主键的表仍然支持集合读取和插入，但按行读取、更新和删除操作仍然依赖主键。
-- schema 自动刷新行为由 `SCHEMA_REFRESH_INTERVAL_SECONDS` 控制。
+- 服务不做定时 schema 刷新；启动后若遇到结构漂移相关错误，会自动刷新元数据并重试一次。
 - `GET /api/{table}` 支持简单等值过滤、单字段排序和分页，详细参数见上文“列表查询参数”。
 - 服务通过 `SCHEMA_NAME` 一次反射一个指定 schema，这与 PostgreSQL、SQL Server、Oracle 一类的 schema 布局比较契合。
 - `GET /health` 和 `GET /metadata` 会返回当前 SQLAlchemy dialect 和 driver，便于确认当前实际连接的后端类型。

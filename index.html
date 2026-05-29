@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>db2api-service</title>
+  <meta
+    name="description"
+    content="db2api-service 是一个基于 FastAPI 和 SQLAlchemy 反射的动态数据库 REST API 服务。"
+  >
+  <style>
+    :root {
+      --bg: #f3efe6;
+      --surface: rgba(255, 252, 247, 0.82);
+      --surface-strong: #fffaf2;
+      --text: #1b1d1f;
+      --muted: #5e625b;
+      --accent: #0b6e4f;
+      --accent-strong: #084c39;
+      --line: rgba(27, 29, 31, 0.12);
+      --shadow: 0 24px 80px rgba(36, 28, 21, 0.12);
+      --radius: 24px;
+      --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+      --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(11, 110, 79, 0.18), transparent 32%),
+        radial-gradient(circle at top right, rgba(214, 140, 69, 0.22), transparent 28%),
+        linear-gradient(180deg, #f8f4ed 0%, #f0eadf 100%);
+      min-height: 100vh;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .page {
+      width: min(1120px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 32px 0 56px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(135deg, rgba(255, 250, 242, 0.96), rgba(245, 240, 232, 0.78));
+      border: 1px solid rgba(27, 29, 31, 0.08);
+      border-radius: 36px;
+      box-shadow: var(--shadow);
+      padding: 56px;
+      margin-bottom: 28px;
+    }
+
+    .hero-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -72px -72px auto;
+      width: 260px;
+      height: 260px;
+      background: radial-gradient(circle, rgba(11, 110, 79, 0.18), transparent 68%);
+      border-radius: 50%;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(11, 110, 79, 0.08);
+      color: var(--accent-strong);
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      font-size: clamp(40px, 7vw, 76px);
+      line-height: 0.96;
+      margin: 18px 0 18px;
+      letter-spacing: -0.04em;
+      max-width: none;
+      white-space: nowrap;
+      overflow-wrap: normal;
+      word-break: normal;
+    }
+
+    .lang-switch {
+      display: inline-flex;
+      padding: 5px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(27, 29, 31, 0.08);
+      gap: 4px;
+    }
+
+    .lang-switch button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 160ms ease, color 160ms ease;
+    }
+
+    .lang-switch button.is-active {
+      background: var(--accent);
+      color: #f9fff8;
+    }
+
+    .lead {
+      max-width: 760px;
+      font-size: clamp(18px, 2.3vw, 24px);
+      line-height: 1.7;
+      color: var(--muted);
+      margin: 0 0 30px;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .button,
+    .button-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 0 18px;
+      border-radius: 999px;
+      text-decoration: none;
+      font-weight: 600;
+      transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+    }
+
+    .button {
+      background: var(--accent);
+      color: #f9fff8;
+      box-shadow: 0 14px 28px rgba(11, 110, 79, 0.2);
+    }
+
+    .button-secondary {
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid rgba(27, 29, 31, 0.08);
+    }
+
+    .button:hover,
+    .button-secondary:hover {
+      transform: translateY(-1px);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: 0 12px 36px rgba(36, 28, 21, 0.08);
+      padding: 28px;
+      backdrop-filter: blur(10px);
+    }
+
+    .card h2,
+    .card h3 {
+      margin-top: 0;
+      margin-bottom: 14px;
+    }
+
+    .features {
+      grid-column: span 7;
+    }
+
+    .summary {
+      grid-column: span 5;
+    }
+
+    .feature-list,
+    .info-list,
+    .endpoint-list,
+    .deploy-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 14px;
+    }
+
+    .feature-list li,
+    .info-list li,
+    .endpoint-list li,
+    .deploy-list li {
+      padding: 14px 16px;
+      background: rgba(255, 255, 255, 0.52);
+      border: 1px solid rgba(27, 29, 31, 0.08);
+      border-radius: 16px;
+    }
+
+    .endpoint-list code,
+    .code-block code,
+    .summary code {
+      font-family: var(--mono);
+      font-size: 0.95em;
+    }
+
+    .full {
+      grid-column: 1 / -1;
+    }
+
+    .endpoint-list strong,
+    .deploy-list strong,
+    .feature-list strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .code-block {
+      overflow-x: auto;
+      margin: 0;
+      border-radius: 18px;
+      padding: 18px 20px;
+      background: #17201c;
+      color: #edf7f0;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .summary-grid div {
+      padding: 16px;
+      border-radius: 16px;
+      background: var(--surface-strong);
+      border: 1px solid rgba(27, 29, 31, 0.06);
+    }
+
+    .summary-grid span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .footer {
+      color: var(--muted);
+      font-size: 14px;
+      text-align: center;
+      padding-top: 18px;
+    }
+
+    [data-lang] {
+      display: none;
+    }
+
+    html[data-current-lang="zh"] [data-lang="zh"],
+    html[data-current-lang="en"] [data-lang="en"] {
+      display: revert;
+    }
+
+    html[data-current-lang="zh"] .lang-switch button[data-target-lang="zh"],
+    html[data-current-lang="en"] .lang-switch button[data-target-lang="en"] {
+      background: var(--accent);
+      color: #f9fff8;
+    }
+
+    @media (max-width: 860px) {
+      .hero {
+        padding: 32px 22px;
+      }
+
+      .hero-top {
+        align-items: flex-start;
+      }
+
+      .features,
+      .summary,
+      .full {
+        grid-column: 1 / -1;
+      }
+
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 560px) {
+      h1 {
+        font-size: clamp(30px, 10vw, 44px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="hero-top">
+        <div class="eyebrow">FastAPI + SQLAlchemy Reflection</div>
+        <div class="lang-switch" aria-label="Language switcher">
+          <button type="button" class="is-active" data-target-lang="zh">中文</button>
+          <button type="button" data-target-lang="en">EN</button>
+        </div>
+      </div>
+      <h1>db2api-service</h1>
+      <p class="lead" data-lang="zh">
+        一个面向关系型数据库的动态 API 服务。它通过反射数据库 schema，自动暴露通用的 CRUD 接口，特别适合自动化测试、测试数据准备、管理后台、内部工具和需要快速验证数据库结构的场景。
+      </p>
+      <p class="lead" data-lang="en">
+        A dynamic API service for relational databases. It reflects database schemas and exposes generic CRUD endpoints, making it especially useful for automation testing, test data setup, admin consoles, internal tools, and fast schema validation.
+      </p>
+      <div class="hero-actions">
+        <a class="button" href="./README.md" data-lang="zh">查看项目文档</a>
+        <a class="button" href="./README.md" data-lang="en">Read the documentation</a>
+        <a class="button-secondary" href="./pyproject.toml" data-lang="zh">查看项目配置</a>
+        <a class="button-secondary" href="./pyproject.toml" data-lang="en">View project config</a>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card features">
+        <h2 data-lang="zh">核心能力</h2>
+        <h2 data-lang="en">Core capabilities</h2>
+        <ul class="feature-list" data-lang="zh">
+          <li>
+            <strong>动态表发现</strong>
+            基于 SQLAlchemy 反射读取目标数据库中的表、列和主键信息，无需为每张表手写模型或路由。
+          </li>
+          <li>
+            <strong>通用 CRUD 接口</strong>
+            对每张表统一提供读取、创建、更新、删除能力，适合作为管理后台、内部工具或数据中台的 API 层。
+          </li>
+          <li>
+            <strong>元数据自动刷新</strong>
+            支持定时刷新，也支持通过管理接口立即刷新，方便在 DDL 变化后快速同步新结构。
+          </li>
+          <li>
+            <strong>查询、排序、分页</strong>
+            <code>GET /api/{table}</code> 支持按列名做简单等值过滤，并提供 <code>order_by</code>、<code>desc</code>、<code>limit</code>、<code>offset</code> 参数。
+          </li>
+          <li>
+            <strong>适合自动化场景</strong>
+            可以直接作为自动化测试的数据访问层，用于接口联调、回归测试、测试环境数据准备，以及快速搭建面向数据库表的内部服务。
+          </li>
+        </ul>
+        <ul class="feature-list" data-lang="en">
+          <li>
+            <strong>Dynamic table discovery</strong>
+            Uses SQLAlchemy reflection to read tables, columns, and primary keys without hand-writing a model or route for every table.
+          </li>
+          <li>
+            <strong>Generic CRUD endpoints</strong>
+            Exposes consistent create, read, update, and delete operations per table, which fits internal tools, admin consoles, and data platforms.
+          </li>
+          <li>
+            <strong>Metadata refresh</strong>
+            Supports both scheduled refresh and manual refresh endpoints so schema changes can be picked up immediately after DDL updates.
+          </li>
+          <li>
+            <strong>Filtering, sorting, and paging</strong>
+            <code>GET /api/{table}</code> supports simple equality filters by column name plus <code>order_by</code>, <code>desc</code>, <code>limit</code>, and <code>offset</code>.
+          </li>
+          <li>
+            <strong>Fits automation workflows</strong>
+            Works well as a data-access layer for automated testing, API integration checks, regression suites, test environment data setup, and quickly exposing internal database-backed services.
+          </li>
+        </ul>
+      </article>
+
+      <aside class="card summary">
+        <h2 data-lang="zh">项目概览</h2>
+        <h2 data-lang="en">Project overview</h2>
+        <p data-lang="zh">
+          服务默认基于 FastAPI 运行，支持 SQLite、PostgreSQL、MySQL、SQL Server 等 SQLAlchemy 兼容数据库。
+        </p>
+        <p data-lang="en">
+          The service runs on FastAPI and targets SQLAlchemy-compatible relational databases including SQLite, PostgreSQL, MySQL, and SQL Server.
+        </p>
+        <div class="summary-grid">
+          <div>
+            <span data-lang="zh">入口</span>
+            <span data-lang="en">Entry</span>
+            <code>db2api_service.main:app</code>
+          </div>
+          <div>
+            <span data-lang="zh">测试</span>
+            <span data-lang="en">Tests</span>
+            <code>pytest -q</code>
+          </div>
+          <div>
+            <span data-lang="zh">安装</span>
+            <span data-lang="en">Install</span>
+            <code>pip install -e .[test]</code>
+          </div>
+          <div>
+            <span data-lang="zh">文档</span>
+            <span data-lang="en">Docs</span>
+            <code>/docs</code>
+          </div>
+          <div>
+            <span data-lang="zh">场景</span>
+            <span data-lang="en">Use case</span>
+            <code data-lang="zh">自动化测试 / 内部工具</code>
+            <code data-lang="en">Automation / Internal tools</code>
+          </div>
+          <div>
+            <span data-lang="zh">优势</span>
+            <span data-lang="en">Benefit</span>
+            <code data-lang="zh">少写样板 CRUD</code>
+            <code data-lang="en">Less CRUD boilerplate</code>
+          </div>
+        </div>
+      </aside>
+
+      <article class="card full">
+        <h2 data-lang="zh">接口示例</h2>
+        <h2 data-lang="en">Endpoint examples</h2>
+        <ul class="endpoint-list" data-lang="zh">
+          <li>
+            <strong><code>GET /metadata</code></strong>
+            查看当前反射到的表、列和数据库连接摘要。
+          </li>
+          <li>
+            <strong><code>POST /admin/refresh</code></strong>
+            强制刷新元数据，立即重新读取数据库 schema。
+          </li>
+          <li>
+            <strong><code>GET /api/users?name=Alice&amp;order_by=created_at&amp;desc=true&amp;limit=20&amp;offset=40</code></strong>
+            使用等值过滤、单字段排序和分页读取列表数据。
+          </li>
+          <li>
+            <strong><code>PATCH /api/users/1</code></strong>
+            以主键定位单条记录，并更新指定字段。
+          </li>
+        </ul>
+        <ul class="endpoint-list" data-lang="en">
+          <li>
+            <strong><code>GET /metadata</code></strong>
+            Inspect reflected tables, columns, and the active database connection summary.
+          </li>
+          <li>
+            <strong><code>POST /admin/refresh</code></strong>
+            Force a metadata refresh and immediately reload the database schema.
+          </li>
+          <li>
+            <strong><code>GET /api/users?name=Alice&amp;order_by=created_at&amp;desc=true&amp;limit=20&amp;offset=40</code></strong>
+            Read list data with equality filtering, single-column sorting, and pagination.
+          </li>
+          <li>
+            <strong><code>PATCH /api/users/1</code></strong>
+            Update a single row by primary key.
+          </li>
+        </ul>
+      </article>
+
+      <article class="card full">
+        <h2 data-lang="zh">典型用途</h2>
+        <h2 data-lang="en">Typical uses</h2>
+        <ul class="endpoint-list" data-lang="zh">
+          <li>
+            <strong>自动化测试与回归验证</strong>
+            测试脚本可以直接调用通用接口准备数据、校验写入结果，并在回归执行后清理测试记录。
+          </li>
+          <li>
+            <strong>测试环境数据准备</strong>
+            在没有专门后端接口的情况下，快速为测试环境插入、查询和修正表数据。
+          </li>
+          <li>
+            <strong>内部管理与运维工具</strong>
+            为后台运营、客服排障、数据核查这类内部场景快速提供可访问的表级 API。
+          </li>
+          <li>
+            <strong>数据库结构快速验证</strong>
+            当数据库 schema 频繁变化时，可以用统一接口快速验证列变化、主键行为和基础 CRUD 是否仍然正常。
+          </li>
+        </ul>
+        <ul class="endpoint-list" data-lang="en">
+          <li>
+            <strong>Automation testing and regression validation</strong>
+            Test suites can call the generic endpoints to seed data, validate writes, and clean up records after execution.
+          </li>
+          <li>
+            <strong>Test environment data setup</strong>
+            Quickly insert, query, and fix table data even when no dedicated backend endpoint exists yet.
+          </li>
+          <li>
+            <strong>Internal admin and operations tools</strong>
+            Expose table-level APIs for support teams, operators, and data-check workflows without building a full custom backend first.
+          </li>
+          <li>
+            <strong>Fast schema verification</strong>
+            When schemas change often, use the same API layer to verify column changes, primary key behavior, and baseline CRUD still work.
+          </li>
+        </ul>
+      </article>
+
+      <article class="card full">
+        <h2 data-lang="zh">本地启动</h2>
+        <h2 data-lang="en">Run locally</h2>
+        <pre class="code-block"><code>pip install -e .[test]
+uvicorn db2api_service.main:app --reload</code></pre>
+      </article>
+
+    </section>
+
+    <p class="footer" data-lang="zh">db2api-service · 面向 SQLAlchemy 兼容关系型数据库的动态数据库 API 服务。</p>
+    <p class="footer" data-lang="en">db2api-service · Dynamic database-to-API service for SQLAlchemy-compatible relational databases.</p>
+  </main>
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var buttons = document.querySelectorAll("[data-target-lang]");
+
+      function setLanguage(lang) {
+        root.setAttribute("data-current-lang", lang);
+        root.setAttribute("lang", lang === "en" ? "en" : "zh-CN");
+        buttons.forEach(function (button) {
+          button.classList.toggle("is-active", button.getAttribute("data-target-lang") === lang);
+        });
+      }
+
+      buttons.forEach(function (button) {
+        button.addEventListener("click", function () {
+          setLanguage(button.getAttribute("data-target-lang"));
+        });
+      });
+
+      setLanguage("zh");
+    })();
+  </script>
+</body>
+</html>
