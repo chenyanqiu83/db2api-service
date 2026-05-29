@@ -1,78 +1,78 @@
 # db2api-service
 
-这个项目通过 SQLAlchemy 的反射能力发现数据库表，并为这些表提供通用的 REST 接口。
+This project discovers database tables through SQLAlchemy reflection and exposes generic REST endpoints for them.
 
-## 支持的数据库
+## Supported databases
 
-该服务面向与 SQLAlchemy 兼容的关系型数据库，并不是所有数据库产品的通用适配层。
+This service targets SQLAlchemy-compatible relational databases. It is not a universal adapter for every database product.
 
-- 本项目明确支持：SQLite、PostgreSQL、MySQL、SQL Server。
-- 其他与 SQLAlchemy 兼容的关系型数据库，如果支持反射并具备标准 CRUD 语义，通常也有机会正常工作。
-- 默认不支持：MongoDB、Redis、Cassandra、Elasticsearch 以及其他非关系型存储。
+- Explicitly supported in this project: SQLite, PostgreSQL, MySQL, SQL Server.
+- Other SQLAlchemy-compatible relational databases may also work if reflection and standard CRUD semantics are available.
+- Not supported out of the box: MongoDB, Redis, Cassandra, Elasticsearch, and other non-relational stores.
 
-实际是否可用，主要取决于以下三点：
+In practice, support depends on three things:
 
-- SQLAlchemy 是否为目标数据库提供可用的 dialect 和 DBAPI 驱动。
-- 表反射是否能正确返回列信息和主键信息。
-- 标准的插入、查询、更新、删除语义是否适用于目标表。
+- SQLAlchemy must provide a working dialect and DBAPI driver for the target database.
+- Table reflection must correctly return columns and primary keys.
+- Standard insert, select, update, and delete semantics must be valid for the target tables.
 
-## 功能说明
+## Features
 
-- 扫描已配置数据库，并为每张表暴露对应的 CRUD 接口。
-- 根据最新反射得到的表结构校验请求体字段名。
-- 服务启动时加载一次表元数据，不依赖定时刷新。
-- 当数据库 schema 变更导致请求与缓存结构不一致时，服务会自动刷新元数据并重试一次。
-- 仍然提供显式的 schema 刷新接口，便于需要时手动触发重新加载。
+- Scans the configured database and exposes CRUD endpoints for each table.
+- Validates request payload field names against the latest reflected schema.
+- Loads table metadata once at startup and does not rely on timed refresh.
+- Automatically refreshes metadata and retries once when schema drift causes a request to mismatch cached structure.
+- Still provides an explicit schema refresh endpoint when manual reload is needed.
 
-## 工作方式
+## How it works
 
-该服务不会为每张表生成单独的 Python 文件，而是在内存中维护一个反射得到的表注册表，并通过通用处理逻辑转发所有 CRUD 请求：
+The service does not generate separate Python files for each table. Instead, it keeps an in-memory reflected table registry and routes all CRUD requests through generic handlers:
 
-- `GET /metadata` 返回当前反射到的表和列信息。
-- `POST /admin/refresh` 强制执行一次完整元数据刷新。
-- `GET /api/{table}` 列出表中的多条记录。
-- `GET /api/{table}/{pk}` 获取单条记录。
-- `POST /api/{table}` 创建一条记录。
-- `PATCH /api/{table}/{pk}` 更新一条记录。
-- `DELETE /api/{table}/{pk}` 删除一条记录。
+- `GET /metadata` returns the currently reflected tables and columns.
+- `POST /admin/refresh` forces a full metadata refresh.
+- `GET /api/{table}` lists rows.
+- `GET /api/{table}/{pk}` fetches a single row.
+- `POST /api/{table}` creates a row.
+- `PATCH /api/{table}/{pk}` updates a row.
+- `DELETE /api/{table}/{pk}` deletes a row.
 
-### 列表查询参数
+### List query parameters
 
-`GET /api/{table}` 支持通过查询字符串执行过滤、排序和分页。
+`GET /api/{table}` supports filtering, sorting, and pagination through query string parameters.
 
-- 等值过滤：除 `limit`、`offset`、`order_by`、`desc`、`refresh` 之外，其他与列名同名的查询参数都会被视为过滤条件。例如 `GET /api/users?name=Alice&status=active`。
-- 排序：使用 `order_by=列名` 指定排序字段，使用 `desc=true` 切换为倒序。当前只支持单字段排序；如果未指定 `order_by` 且目标表存在主键，则默认按主键升序排序。
-- 分页：使用 `limit` 控制返回条数，默认值为 `50`；使用 `offset` 控制跳过的记录数，默认值为 `0`。实际生效的 `limit` 不会超过 `MAX_PAGE_SIZE`，默认上限为 `200`。
-- 强制刷新：使用 `refresh=true` 可以在执行查询前先刷新一次元数据。
-- 错误处理：如果过滤字段或 `order_by` 指向不存在的列，接口会返回 `400`。
+- Equality filters: any query parameter matching a column name is treated as a filter, except `limit`, `offset`, `order_by`, `desc`, and `refresh`. Example: `GET /api/users?name=Alice&status=active`.
+- Sorting: use `order_by=column_name` to choose the sort field and `desc=true` for descending order. Only single-column sorting is supported. If `order_by` is not provided and the table has a primary key, results default to primary-key ascending order.
+- Pagination: use `limit` to control the number of rows returned, default `50`, and `offset` to skip rows, default `0`. The effective `limit` will not exceed `MAX_PAGE_SIZE`, which defaults to `200`.
+- Forced refresh: use `refresh=true` to refresh metadata before executing the query.
+- Error handling: if a filter field or `order_by` references a missing column, the API returns `400`.
 
-示例请求：
+Example request:
 
 ```http
 GET /api/users?name=Alice&order_by=created_at&desc=true&limit=20&offset=40
 ```
 
-返回结果包含以下字段：
+The response includes these fields:
 
-- `table`：当前查询的表名。
-- `total`：满足过滤条件的总记录数。
-- `limit`：本次实际生效的分页大小。
-- `offset`：本次分页偏移量。
-- `filters`：实际应用的过滤条件。
-- `items`：当前页的数据列表。
+- `table`: the queried table name.
+- `total`: total number of rows matching the filters.
+- `limit`: effective page size used for the query.
+- `offset`: pagination offset.
+- `filters`: filters actually applied.
+- `items`: the current page of rows.
 
-如果是复合主键，请按照主键顺序使用逗号分隔的标识，例如 `GET /api/order_items/1001,7`。
+For composite primary keys, use a comma-separated identity in primary key order, for example `GET /api/order_items/1001,7`.
 
-## 快速开始
+## Quick start
 
-1. 创建并激活虚拟环境。
-2. 安装项目：
+1. Create and activate a virtual environment.
+2. Install the project:
 
    ```powershell
    pip install -e .[test]
    ```
 
-   如果目标数据库需要额外驱动，可按需安装对应扩展依赖：
+   Install the matching optional driver extras when needed:
 
    ```powershell
    pip install -e .[postgresql]
@@ -80,23 +80,23 @@ GET /api/users?name=Alice&order_by=created_at&desc=true&limit=20&offset=40
    pip install -e .[sqlserver]
    ```
 
-3. 将 `.env.example` 复制为 `.env`，并设置 `DATABASE_URL`。
-4. 启动服务：
+3. Copy `.env.example` to `.env` and set `DATABASE_URL`.
+4. Start the service:
 
    ```powershell
    uvicorn db2api_service.main:app --reload
    ```
 
-5. 打开 `http://127.0.0.1:8000/docs` 查看 Swagger UI。
+5. Open `http://127.0.0.1:8000/docs` for Swagger UI.
 
-## 数据库 URL 示例
+## Database URL examples
 
 - SQLite: `sqlite:///./demo.db`
 - PostgreSQL: `postgresql+psycopg://user:password@host:5432/dbname`
 - MySQL: `mysql+pymysql://user:password@host:3306/dbname`
 - SQL Server: `mssql+pyodbc://user:password@host:1433/dbname?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes`
 
-如有需要，请安装匹配的可选驱动依赖：
+Install matching optional driver dependencies when needed:
 
 ```powershell
 pip install -e .[postgres]
@@ -104,12 +104,12 @@ pip install -e .[mysql]
 pip install -e .[sqlserver]
 ```
 
-对于 SQL Server，还需要在宿主机上安装 Microsoft 的 ODBC 驱动。
+For SQL Server, you also need Microsoft's ODBC driver installed on the host machine.
 
-## 说明
+## Notes
 
-- 没有主键的表仍然支持集合读取和插入，但按行读取、更新和删除操作仍然依赖主键。
-- 服务不做定时 schema 刷新；启动后若遇到结构漂移相关错误，会自动刷新元数据并重试一次。
-- `GET /api/{table}` 支持简单等值过滤、单字段排序和分页，详细参数见上文“列表查询参数”。
-- 服务通过 `SCHEMA_NAME` 一次反射一个指定 schema，这与 PostgreSQL、SQL Server、Oracle 一类的 schema 布局比较契合。
-- `GET /health` 和 `GET /metadata` 会返回当前 SQLAlchemy dialect 和 driver，便于确认当前实际连接的后端类型。
+- Tables without a primary key still support collection reads and inserts, but row-level read, update, and delete operations require a primary key.
+- The service does not use timed schema refresh. After startup, if a schema-drift-related error occurs, it automatically refreshes metadata and retries once.
+- `GET /api/{table}` supports simple equality filters, single-column sorting, and pagination. See “List query parameters” above for details.
+- The service reflects one configured schema at a time through `SCHEMA_NAME`, which fits PostgreSQL, SQL Server, and Oracle-style schema layouts well.
+- `GET /health` and `GET /metadata` expose the active SQLAlchemy dialect and driver so you can confirm the connected backend.
