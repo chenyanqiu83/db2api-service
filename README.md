@@ -1,6 +1,49 @@
 # db2api-service
 
-This project discovers database tables through SQLAlchemy reflection and exposes generic REST endpoints for them.
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-2f6db5)
+![FastAPI](https://img.shields.io/badge/framework-FastAPI-0b7a75)
+![SQLAlchemy 2](https://img.shields.io/badge/ORM-SQLAlchemy%202-d71f00)
+![Relational DBs](https://img.shields.io/badge/databases-SQLite%20%7C%20PostgreSQL%20%7C%20MySQL%20%7C%20SQL%20Server-5a3ec8)
+![Automation Testing](https://img.shields.io/badge/use%20case-automation%20testing-3a7d44)
+
+Dynamic REST API generation for relational databases with FastAPI and SQLAlchemy reflection.
+
+Turn an existing database into a schema-aware CRUD service in minutes. db2api-service reflects tables at runtime, exposes generic REST endpoints, and handles schema drift with automatic metadata refresh and retry.
+
+- Zero per-table route code for standard CRUD APIs.
+- Works with SQLite, PostgreSQL, MySQL, and SQL Server.
+- Built for internal tools, admin backends, rapid prototypes, and legacy database projects.
+- Useful as a lightweight backend for automation testing, QA environments, and test data workflows.
+
+Automation testing teams, QA platform engineers, and test infrastructure teams can use db2api-service as a dynamic test data API, database-backed integration testing backend, regression testing service, schema-aware CRUD layer, and disposable environment helper for CI pipelines and end-to-end test platforms.
+
+## Quick example
+
+Point the service at an existing relational database and immediately query reflected tables through HTTP:
+
+```http
+GET /api/users?status=active&order_by=created_at&desc=true&limit=10
+```
+
+```json
+{
+   "table": "users",
+   "total": 42,
+   "limit": 10,
+   "offset": 0,
+   "filters": {
+      "status": "active"
+   },
+   "items": [
+      {
+         "id": 101,
+         "name": "Alice",
+         "status": "active",
+         "created_at": "2026-05-30T09:15:00"
+      }
+   ]
+}
+```
 
 ## Supported databases
 
@@ -23,6 +66,23 @@ In practice, support depends on three things:
 - Loads table metadata once at startup and does not rely on timed refresh.
 - Automatically refreshes metadata and retries once when schema drift causes a request to mismatch cached structure.
 - Still provides an explicit schema refresh endpoint when manual reload is needed.
+- Useful for automated API, integration, regression, and test-environment validation against existing databases.
+
+## Good fit for
+
+- Rapidly exposing internal relational databases as REST APIs.
+- Building admin tools and internal tooling without writing per-table endpoints.
+- Automated testing that needs predictable CRUD access to a real database schema.
+- Regression testing for schema changes, especially when tables evolve during development.
+- Legacy database projects where writing and maintaining custom API layers would be expensive.
+
+## Why this project
+
+- Use this when you already have a relational database and want an API now, not after building a custom CRUD layer for every table.
+- Compared with hand-written FastAPI endpoints, it reduces repetitive route, validation, and metadata boilerplate for standard database operations.
+- Compared with code generation, it keeps the API tied to the live reflected schema instead of generated files that can drift from the database.
+- Compared with one-off test helpers, it gives automation and QA teams a reusable HTTP surface for seeding, querying, and validating real test data.
+- Compared with admin-only tooling, it is designed to be scriptable from CI pipelines, integration suites, and end-to-end tests.
 
 ## How it works
 
@@ -88,6 +148,23 @@ For composite primary keys, use a comma-separated identity in primary key order,
    ```
 
 5. Open `http://127.0.0.1:8000/docs` for Swagger UI.
+
+## Automated testing use cases
+
+This project can also serve as a test helper service for teams that want to exercise real database-backed API flows without manually building a dedicated CRUD layer first.
+
+- Use it in integration tests to seed, query, update, and delete relational test data through HTTP.
+- Use it in end-to-end tests to validate UI or workflow behavior against a disposable database.
+- Use it in regression suites to catch breaking schema changes when columns are added, removed, or renamed.
+- Use it in QA environments to expose temporary database fixtures through a consistent API surface.
+
+Because the service reflects the schema dynamically and can refresh metadata after drift-related failures, it is especially useful when test databases change frequently during development.
+
+You can run the project test suite with:
+
+```powershell
+pytest
+```
 
 ## Database URL examples
 

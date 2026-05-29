@@ -5,15 +5,50 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "db2api-service"
 version = "0.1.0"
-description = "Dynamic CRUD microservice that reflects database tables and adapts to schema changes."
-readme = "README.md"
+description = "Dynamic REST API and CRUD microservice for relational databases, integration testing, and schema-aware automation workflows."
+readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.11"
+keywords = [
+    "fastapi",
+    "sqlalchemy",
+    "crud-api",
+    "database-reflection",
+    "schema-introspection",
+    "integration-testing",
+    "automation-testing",
+    "test-data-api",
+    "sqlite",
+    "postgresql",
+    "mysql",
+    "sql-server",
+    "rest-api",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content :: CGI Tools/Libraries",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Testing :: Mocking",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "fastapi>=0.116,<1.0",
     "uvicorn[standard]>=0.34,<1.0",
     "SQLAlchemy>=2.0,<3.0",
     "pydantic-settings>=2.7,<3.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/chenyanqiu83/db2api-service"
+Repository = "https://github.com/chenyanqiu83/db2api-service"
+Issues = "https://github.com/chenyanqiu83/db2api-service/issues"
+Documentation = "https://github.com/chenyanqiu83/db2api-service#readme"
+Releases = "https://github.com/chenyanqiu83/db2api-service/releases"
 
 [project.optional-dependencies]
 test = [
